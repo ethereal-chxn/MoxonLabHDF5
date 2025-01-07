@@ -25,6 +25,15 @@ def get_subgroup(hdf5_obj, subgroup):
     except:
         hdf5_obj.create_group(subgroup)
         return hdf5_obj[subgroup]
+    
+
+# Attempts to access a specified dataset in HDF5 file.
+def get_dataset(hdf5_obj, dataset_path):
+    try:
+        return hdf5_obj[dataset_path]
+    except:
+        print("Error: {dataset_path} could not be found")
+        return
 
 
 # Stores analog signals within the raw EEG data file's NEO object form into
@@ -90,6 +99,18 @@ def store_neural(params):
 def delete_neural_dataset(params):
     hdf5_obj = params[0]
     dataset_path = params[1]
+
+    # # Attempt to access dataset
+    # try:
+    #     specified_dataset = get_dataset(hdf5_obj, dataset_path)
+    # except:
+    #     print("Error in deleting neural dataset: Specified dataset does not exist.")
+    #     return
+    try:
+        del hdf5_obj[dataset_path]
+    except:
+        print("Error occurred in deleting neural dataset")
+
 
 # To run this program:
 # py ./src/mox_h5.py [command] [params]
