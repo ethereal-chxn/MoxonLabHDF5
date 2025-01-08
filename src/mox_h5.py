@@ -112,6 +112,19 @@ def delete_neural_dataset(params):
         print("Error occurred in deleting neural dataset")
 
 
+# Stores a specified recording session data file into a HDF5 file.
+# ===
+# Command format: store_rs [data_path] [OPTIONAL: hdf5_file_name]
+def store_recording_session(params):
+    data_path = params[0]
+
+    if len(params) == 1:
+        hdf5_file_name = gen_dataset_name_from_filepath(data_path)
+    else:
+        hdf5_file_name = params[1]
+
+
+# TODO: refactor program to create HDF5 files for each recording session
 # To run this program:
 # py ./src/mox_h5.py [command] [params]
 if __name__ == '__main__':
