@@ -80,17 +80,13 @@ def store_spikes(raw_data, hdf5_obj):
             spiketrain_idx = 0
             print(f"num of SpikeTrains in block {block_idx}, segment {segment_idx}: {len(segment.spiketrains)}")
             for signal in segment.spiketrains:
-                print(f"shape of SpikeTrains {spiketrain_idx} in block {block_idx}, segment {segment_idx}: {signal.shape}")
+                # print(f"shape of SpikeTrains {spiketrain_idx} in block {block_idx}, segment {segment_idx}: {signal.shape}")
                 signal_np_arr = signal.magnitude
                 neural_group[f"Spikes{spiketrain_idx}"] = signal_np_arr
                 spiketrain_idx += 1
             segment_idx += 1
         block_idx += 1
 
-
-# ====================
-# || MOX_H5 METHODS ||
-# ====================
 
 # Stores a raw EEG file's data into the Neural group.
 # ===
@@ -114,6 +110,17 @@ def store_neural(data_fp, hdf5_fp):
     store_raw_cont(raw_data, hdf5_obj)
     store_spikes(raw_data, hdf5_obj)
 
+# TODO: implement storing events and metadata
+def store_events_classes():
+    pass
+
+
+def store_meta():
+    pass
+
+# ====================
+# || MOX_H5 METHODS ||
+# ====================
 
 # Stores a specified recording session data file into a HDF5 file.
 # ===
@@ -131,7 +138,6 @@ def store_recording_session(params):
     store_neural(data_path, hdf5_file_name)
 
 
-# TODO: refactor program to create HDF5 files for each recording session
 # To run this program:
 # py ./src/mox_h5.py [command] [params]
 if __name__ == '__main__':
