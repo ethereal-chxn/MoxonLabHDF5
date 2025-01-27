@@ -2,3 +2,4 @@
 ./test_files/
 ./test_output/
 /test_files
+/test_output
