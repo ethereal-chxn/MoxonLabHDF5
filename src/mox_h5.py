@@ -43,28 +43,66 @@ def get_dataset(hdf5_obj, dataset_path):
 # https://neo.readthedocs.io/en/latest/api_reference.html# to understand
 # how EEG data is structured in an NEO object.
 def store_raw_cont(raw_data, hdf5_obj):
-    print("== STORING RAW CONTINUOUS DATA ==")
     block_idx = 0
     segment_idx = 0
-    signal_idx = 0
 
     neural_group = get_subgroup(hdf5_obj, "Neural")
 
+    print("== STORING RAW CONTINUOUS DATA ==")
     for block in raw_data:
         segment_idx = 0
-        print(f"num of segments in block {block_idx}: {len(block.segments)}")
+
+        # here for debugging purposes. TO BE DELETED LATER
+        # print(f"num of segments in block {block_idx}: {len(block.segments)}")
         for segment in block.segments:
-            signal_idx = 0
-            print(f"num of AnalogSignals in block {block_idx}, segment {segment_idx}: {len(segment.analogsignals)}")
-            for signal in segment.analogsignals:
-                print(f"shape of AnalogSignal {signal_idx} in block {block_idx}, segment {segment_idx}: {signal.shape}")
-                signal_np_arr = signal.magnitude
-                neural_group[f"RawContinuous{signal_idx}"] = signal_np_arr
-                signal_idx += 1
+            # The NEO reader extracts 3 AnalogSignals. The third one is from the FPSeparator device 
+            # in the OmniPlex (AKA the raw continuous neural data).
+            raw_cont = segment.analogsignals[2]
+            print(f"shape of RawContinuous in block {block_idx}, segment {segment_idx}: {raw_cont.shape}")
+
+            # Turns raw continuous signal into a HDF5-storable numpy array.
+            raw_cont_np = raw_cont.magnitude
+
+            neural_group["RawContinuous"] = raw_cont_np
+
             segment_idx += 1
         block_idx += 1    
 
-# TODO: implement storing spike data into HDF5 file
+
+# Stores episodic data within the raw EEG data file's NEO object form into
+# the specified HDF5 file object's Episodic group.
+# ===
+# Note: Consult the Block, Segment, and AnalogSignal sections in 
+# https://neo.readthedocs.io/en/latest/api_reference.html# to understand
+# how EEG data is structured in an NEO object.
+def store_episodic_data(raw_data, hdf5_obj):
+    block_idx = 0
+    segment_idx = 0
+
+    episodic_group = get_subgroup(hdf5_obj, "Episodic")
+
+    print("== STORING EPISODIC DATA ==")
+    for block in raw_data:
+        segment_idx = 0
+        for segment in block.segments:
+            # The NEO reader extracts 3 AnalogSignals. The first one is from an Auxillary Analog Input (AuxAI)
+            # source which is episodic, non-neural data. The second one is from the AuxAI Filter device which
+            # is a filtered AI source. 
+            aux_ai = segment.analogsignals[0]
+            aux_ai_filter = segment.analogsignals[1]
+            print(f"shape of AuxAI signal in block {block_idx}, segment {segment_idx}: {aux_ai.shape}")
+            print(f"shape of AuxAI Filter signal in block {block_idx}, segment {segment_idx}: {aux_ai_filter.shape}")
+
+            aux_ai_np = aux_ai.magnitude
+            aux_ai_filter_np = aux_ai_filter.magnitude
+
+            episodic_group["AuxAI"] = aux_ai_np
+            episodic_group["AuxAIFilter"] = aux_ai_filter_np
+
+            segment_idx += 1
+        block_idx += 1
+        
+
 def store_spikes(raw_data, hdf5_obj):
     print("== STORING SPIKES ==")
     block_idx = 0
@@ -79,24 +117,20 @@ def store_spikes(raw_data, hdf5_obj):
         for segment in block.segments:
             spiketrain_idx = 0
             print(f"num of SpikeTrains in block {block_idx}, segment {segment_idx}: {len(segment.spiketrains)}")
-            for signal in segment.spiketrains:
+            for spiketrain in segment.spiketrains:
                 # print(f"shape of SpikeTrains {spiketrain_idx} in block {block_idx}, segment {segment_idx}: {signal.shape}")
-                signal_np_arr = signal.magnitude
-                neural_group[f"Spikes{spiketrain_idx}"] = signal_np_arr
+                signal_np_arr = spiketrain.magnitude
+                neural_group[f"{spiketrain.name}"] = signal_np_arr
                 spiketrain_idx += 1
             segment_idx += 1
         block_idx += 1
 
 
-# Stores a raw EEG file's data into the Neural group.
+# Stores a raw EEG file's data into the Neural and Episodic groups.
 # ===
-# Command format: store_neural [data_fp] [hdf5_fp] [subgroup]
+# Command format: store_data [data_fp] [hdf5_fp]
 
-def store_neural(data_fp, hdf5_fp):
-    # extract data_fp and hdf5_fp from user input
-    # data_fp = params[0]
-    # hdf5_fp = params[1]
-
+def store_data(data_fp, hdf5_fp):
     # read in raw EEG file as a NEO object
     reader = neo.io.get_io(data_fp)
     raw_data = reader.read(lazy=False)
@@ -109,6 +143,8 @@ def store_neural(data_fp, hdf5_fp):
 
     store_raw_cont(raw_data, hdf5_obj)
     store_spikes(raw_data, hdf5_obj)
+    store_episodic_data(raw_data, hdf5_obj)
+
 
 # TODO: implement storing events and metadata
 def store_events_classes():
@@ -135,7 +171,7 @@ def store_recording_session(params):
     else:
         hdf5_file_name = params[1]
     
-    store_neural(data_path, hdf5_file_name)
+    store_data(data_path, hdf5_file_name)
 
 
 # To run this program:
