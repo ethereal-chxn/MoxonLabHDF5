@@ -35,6 +35,20 @@ def get_dataset(hdf5_obj, dataset_path):
         print("Error: {dataset_path} could not be found")
         return
 
+# Converts the Plexon spike name from "SPK(electrode ch#).(single unit #)" 
+# format to "SPK#.(single unit letter)"
+# e.g.: SPK189.4 => SPK189.d
+def format_spike_name(spike_name):
+    # split spike name string into the electrode channel number and the single unit number
+    electrode_ch = spike_name.split('.')[0]
+    single_unit_num = int(spike_name.split('.')[1])
+
+    # convert single_unit_num to letter
+    # note: 97 is 'a''s ascii number
+    single_unit_letter = chr(97 + single_unit_num)
+
+    return electrode_ch + '.' + single_unit_letter
+    
 
 # Stores raw continuous data within the raw EEG data file's NEO object form into
 # the specified HDF5 file object's Neural group.
@@ -64,6 +78,10 @@ def store_raw_cont(raw_data, hdf5_obj):
             raw_cont_np = raw_cont.magnitude
 
             neural_group["RawContinuous"] = raw_cont_np
+
+            # Extract metadata
+            neural_group["RawContinuous"].attrs["name"] = str(raw_cont.name)
+            neural_group["RawContinuous"].attrs['sample_rate'] = raw_cont.sampling_rate
 
             segment_idx += 1
         block_idx += 1    
@@ -99,6 +117,12 @@ def store_episodic_data(raw_data, hdf5_obj):
             episodic_group["AuxAI"] = aux_ai_np
             episodic_group["AuxAIFilter"] = aux_ai_filter_np
 
+            # extract metadata of the raw EEG signals
+            episodic_group["AuxAI"].attrs["name"] = str(aux_ai.name)
+            episodic_group["AuxAI"].attrs['sample_rate'] = aux_ai.sampling_rate
+            episodic_group["AuxAIFilter"].attrs['name'] = str(aux_ai_filter.name)
+            episodic_group["AuxAIFilter"].attrs['sample_rate'] = aux_ai_filter.sampling_rate
+            
             segment_idx += 1
         block_idx += 1
         
@@ -120,7 +144,7 @@ def store_spikes(raw_data, hdf5_obj):
             for spiketrain in segment.spiketrains:
                 # print(f"shape of SpikeTrains {spiketrain_idx} in block {block_idx}, segment {segment_idx}: {signal.shape}")
                 signal_np_arr = spiketrain.magnitude
-                neural_group[f"{spiketrain.name}"] = signal_np_arr
+                neural_group[f"{format_spike_name(spiketrain.name)}"] = signal_np_arr
                 spiketrain_idx += 1
             segment_idx += 1
         block_idx += 1
@@ -150,9 +174,6 @@ def store_data(data_fp, hdf5_fp):
 def store_events_classes():
     pass
 
-
-def store_meta():
-    pass
 
 # ====================
 # || MOX_H5 METHODS ||
