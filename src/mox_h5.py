@@ -82,6 +82,8 @@ def store_raw_cont(raw_data, hdf5_obj):
             # Extract metadata
             neural_group["RawContinuous"].attrs["name"] = str(raw_cont.name)
             neural_group["RawContinuous"].attrs['sample_rate'] = raw_cont.sampling_rate
+            neural_group["RawContinuous"].attrs["start_time"] = raw_cont.t_start
+            neural_group["RawContinuous"].attrs["duration"] = f"{float(raw_cont.duration.magnitude)} s"
 
             segment_idx += 1
         block_idx += 1    
@@ -93,11 +95,11 @@ def store_raw_cont(raw_data, hdf5_obj):
 # Note: Consult the Block, Segment, and AnalogSignal sections in 
 # https://neo.readthedocs.io/en/latest/api_reference.html# to understand
 # how EEG data is structured in an NEO object.
-def store_episodic_data(raw_data, hdf5_obj):
+def store_behavioral_data(raw_data, hdf5_obj):
     block_idx = 0
     segment_idx = 0
 
-    episodic_group = get_subgroup(hdf5_obj, "Episodic")
+    behavorial_group = get_subgroup(hdf5_obj, "Behavorial")
 
     print("== STORING EPISODIC DATA ==")
     for block in raw_data:
@@ -114,14 +116,14 @@ def store_episodic_data(raw_data, hdf5_obj):
             aux_ai_np = aux_ai.magnitude
             aux_ai_filter_np = aux_ai_filter.magnitude
 
-            episodic_group["AuxAI"] = aux_ai_np
-            episodic_group["AuxAIFilter"] = aux_ai_filter_np
+            behavorial_group["AuxAI"] = aux_ai_np
+            behavorial_group["AuxAIFilter"] = aux_ai_filter_np
 
             # extract metadata of the raw EEG signals
-            episodic_group["AuxAI"].attrs["name"] = str(aux_ai.name)
-            episodic_group["AuxAI"].attrs['sample_rate'] = aux_ai.sampling_rate
-            episodic_group["AuxAIFilter"].attrs['name'] = str(aux_ai_filter.name)
-            episodic_group["AuxAIFilter"].attrs['sample_rate'] = aux_ai_filter.sampling_rate
+            behavorial_group["AuxAI"].attrs["name"] = str(aux_ai.name)
+            behavorial_group["AuxAI"].attrs['sample_rate'] = aux_ai.sampling_rate
+            behavorial_group["AuxAIFilter"].attrs['name'] = str(aux_ai_filter.name)
+            behavorial_group["AuxAIFilter"].attrs['sample_rate'] = aux_ai_filter.sampling_rate
             
             segment_idx += 1
         block_idx += 1
@@ -150,6 +152,23 @@ def store_spikes(raw_data, hdf5_obj):
         block_idx += 1
 
 
+# TODO: implement storing events
+def store_events_classes(raw_data, hdf5_obj):
+    print("==STORING EVENT DATA==")
+
+    events_timestamps = get_subgroup(hdf5_obj, "events_classes/events_timestamps")
+
+    for block in raw_data:
+        for segment in block.segments:
+            for event in segment.events:
+                # extract the event's timestamps and put into HDF5 container
+                event_timestamps = event.magnitude
+                events_timestamps[f"{event.name}"] = event_timestamps
+                # extract the event's metadata
+                events_timestamps[f"{event.name}"].attrs['units'] = str(event.units).split()[1]
+                events_timestamps[f"{event.name}"].attrs['num_occurences'] = event.shape[0]
+
+
 # Stores a raw EEG file's data into the Neural and Episodic groups.
 # ===
 # Command format: store_data [data_fp] [hdf5_fp]
@@ -167,12 +186,8 @@ def store_data(data_fp, hdf5_fp):
 
     store_raw_cont(raw_data, hdf5_obj)
     store_spikes(raw_data, hdf5_obj)
-    store_episodic_data(raw_data, hdf5_obj)
-
-
-# TODO: implement storing events and metadata
-def store_events_classes():
-    pass
+    store_behavioral_data(raw_data, hdf5_obj)
+    store_events_classes(raw_data, hdf5_obj)
 
 
 # ====================
