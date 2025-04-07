@@ -4,6 +4,21 @@ import neo
 import sys
 
 # ======================
+# || GLOBAL VARIABLES ||
+# ======================
+
+
+
+# Defines numpy datatype for single unit spikes.
+# Datatype consists of:
+# Name (string)
+# Spike Times (ragged array of floats)
+single_unit_dt = np.dtype([('name', h5py.string_dtype()), ('spike_times', h5py.vlen_dtype('float64'))])
+
+# Defines the composite type for elements in the SpikeTrains dataset
+spk_ch_dt = np.dtype([('ch_name', h5py.string_dtype()), ('single_unit_spks', single_unit_dt)])
+
+# ======================
 # || HELPER FUNCTIONS ||
 # ======================
 
@@ -18,7 +33,6 @@ def gen_hdf5_name_from_filepath(data_fp):
 # Attempts to access a specified subgroup. If subgroup doesn't exist,
 # creates that subgroup.
 # ===
-# Note: call this function like: ___.get_subgroup(subgroup)
 def get_subgroup(hdf5_obj, subgroup):
     try:
         return hdf5_obj[subgroup]
@@ -35,6 +49,10 @@ def get_dataset(hdf5_obj, dataset_path):
         print("Error: {dataset_path} could not be found")
         return
 
+def get_spike_ch(spike_name):
+    electrode_ch = spike_name.split('.')[0]
+    return electrode_ch
+
 # Converts the Plexon spike name from "SPK(electrode ch#).(single unit #)" 
 # format to "SPK#.(single unit letter)"
 # e.g.: SPK189.4 => SPK189.d
@@ -48,7 +66,31 @@ def format_spike_name(spike_name):
     single_unit_letter = chr(97 + single_unit_num)
 
     return electrode_ch + '.' + single_unit_letter
+
+
+# Takes in a raw file's spike data and returns a hashmap    
+def get_num_single_units_in_chs(spiketrains):
+    single_units_hash = {}
+
+    for spiketrain in spiketrains:
+        ch_num = get_spike_ch(spiketrain.name)
+
+        if ch_num in single_units_hash:
+            single_units_hash[ch_num] += 1
+        else:
+            single_units_hash[ch_num] = 1
     
+    return single_units_hash
+
+
+def create_spikes_structure(hdf5_obj):
+    neural_group = get_subgroup(hdf5_obj, "Neural")
+
+    # define 
+
+# =======================
+# || STORAGE FUNCTIONS ||
+# =======================
 
 # Stores raw continuous data within the raw EEG data file's NEO object form into
 # the specified HDF5 file object's Neural group.
@@ -133,7 +175,6 @@ def store_spikes(raw_data, hdf5_obj):
     print("== STORING SPIKES ==")
     block_idx = 0
     segment_idx = 0
-    spiketrain_idx = 0
 
     neural_group = get_subgroup(hdf5_obj, "Neural")
 
@@ -141,13 +182,11 @@ def store_spikes(raw_data, hdf5_obj):
         segment_idx = 0
         print(f"num of segments in block {block_idx}: {len(block.segments)}")
         for segment in block.segments:
-            spiketrain_idx = 0
             print(f"num of SpikeTrains in block {block_idx}, segment {segment_idx}: {len(segment.spiketrains)}")
             for spiketrain in segment.spiketrains:
                 # print(f"shape of SpikeTrains {spiketrain_idx} in block {block_idx}, segment {segment_idx}: {signal.shape}")
                 signal_np_arr = spiketrain.magnitude
                 neural_group[f"{format_spike_name(spiketrain.name)}"] = signal_np_arr
-                spiketrain_idx += 1
             segment_idx += 1
         block_idx += 1
 
