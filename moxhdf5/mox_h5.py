@@ -2,6 +2,7 @@ import h5py
 import numpy as np
 import neo
 import sys
+import modules.datatype_creator as datatype_creator
 
 # ======================
 # || GLOBAL VARIABLES ||
@@ -17,6 +18,25 @@ single_unit_dt = np.dtype([('name', h5py.string_dtype()), ('spike_times', h5py.v
 
 # Defines the composite type for elements in the SpikeTrains dataset
 spk_ch_dt = np.dtype([('ch_name', h5py.string_dtype()), ('single_unit_spks', single_unit_dt)])
+
+
+# Creates an EEG dataset datatype with specified number of channels
+# EEG dataset structure:
+# (channel name, float32 numpy array that contains channel's eeg data)
+def create_eeg_dt(num_chs):
+    return np.dtype([('channel_name', h5py.string_dtype()), ('channel_data', np.float32, num_chs)])
+
+
+# Creates a spike times datatype with specified number of single unit neurons
+# Datatype consists of:
+# Name (string)
+# Spike Times (ragged array of floats)
+def create_spks_dt():
+    return np.dtype([('single_unit_name', h5py.string_dtype()), ('times', h5py.vlen_dtype('float64'))])
+
+
+def create_spk_waveforms_dt():
+    return np.dtype([('single_unit_neuron', h5py.string_dtype()), ('waveforms', h5py.vlen_dtype(np.array(dtype=np.int32)))])
 
 # ======================
 # || HELPER FUNCTIONS ||
@@ -53,19 +73,24 @@ def get_spike_ch(spike_name):
     electrode_ch = spike_name.split('.')[0]
     return electrode_ch
 
+
 # Converts the Plexon spike name from "SPK(electrode ch#).(single unit #)" 
 # format to "SPK#.(single unit letter)"
+# Note: SPK#.0 -> unsorted spikes in that channel
 # e.g.: SPK189.4 => SPK189.d
 def format_spike_name(spike_name):
     # split spike name string into the electrode channel number and the single unit number
-    electrode_ch = spike_name.split('.')[0]
+    electrode_ch = get_spike_ch(spike_name)
     single_unit_num = int(spike_name.split('.')[1])
 
     # convert single_unit_num to letter
-    # note: 97 is 'a''s ascii number
-    single_unit_letter = chr(97 + single_unit_num)
+    if single_unit_num == 0:
+        single_unit = "unsorted"
+    else:
+        # note: 97 is 'a''s ascii number
+        single_unit = chr(97 + single_unit_num - 1)
 
-    return electrode_ch + '.' + single_unit_letter
+    return electrode_ch + '.' + single_unit
 
 
 # Takes in a raw file's spike data and returns a hashmap    
@@ -82,11 +107,27 @@ def get_num_single_units_in_chs(spiketrains):
     
     return single_units_hash
 
+# Gets number of single unit neurons with recorded spikes.
+def get_num_spike_neurons(spiketrains):
+    num_spk_neurons = 0
 
-def create_spikes_structure(hdf5_obj):
-    neural_group = get_subgroup(hdf5_obj, "Neural")
+    for spiketrain in spiketrains:
+        # Must check if single unit neuron contains any spike times because
+        # NEO reads in every spike channel regardless of if there is
+        # any actual spikes recorded in it.
+        if spiketrain.magnitude.size == 0:
+            continue
+        num_spk_neurons += 1
+    
+    return num_spk_neurons
 
-    # define 
+def get_max_spiketimes_len(spiketrains):
+     spiketrains_lens = [spiketrain.magnitude.size for spiketrain in spiketrains]
+     return np.max(np.array(spiketrains_lens))
+
+
+def append_to_dataset(dataset, data):
+    pass
 
 # =======================
 # || STORAGE FUNCTIONS ||
@@ -99,36 +140,41 @@ def create_spikes_structure(hdf5_obj):
 # https://neo.readthedocs.io/en/latest/api_reference.html# to understand
 # how EEG data is structured in an NEO object.
 def store_raw_cont(raw_data, hdf5_obj):
-    block_idx = 0
-    segment_idx = 0
-
     neural_group = get_subgroup(hdf5_obj, "Neural")
 
     print("== STORING RAW CONTINUOUS DATA ==")
-    for block in raw_data:
-        segment_idx = 0
 
-        # here for debugging purposes. TO BE DELETED LATER
-        # print(f"num of segments in block {block_idx}: {len(block.segments)}")
-        for segment in block.segments:
-            # The NEO reader extracts 3 AnalogSignals. The third one is from the FPSeparator device 
-            # in the OmniPlex (AKA the raw continuous neural data).
-            raw_cont = segment.analogsignals[2]
-            print(f"shape of RawContinuous in block {block_idx}, segment {segment_idx}: {raw_cont.shape}")
+    # The NEO reader extracts 3 AnalogSignals. The third one is from the FPSeparator device 
+    # in the OmniPlex (AKA the raw continuous neural data).
+    raw_cont = raw_data[0].segments[0].analogsignals[2]
 
-            # Turns raw continuous signal into a HDF5-storable numpy array.
-            raw_cont_np = raw_cont.magnitude
+    # Turns raw continuous signal into a HDF5-storable numpy array.
+    raw_cont_np = raw_cont.magnitude
+    
+    num_chs = raw_cont_np.shape[1]
 
-            neural_group["RawContinuous"] = raw_cont_np
+    raw_cont_ds = neural_group.create_dataset("RawContinuous", num_chs, dtype=datatype_creator.eeg_dt(num_chs))
 
-            # Extract metadata
-            neural_group["RawContinuous"].attrs["name"] = str(raw_cont.name)
-            neural_group["RawContinuous"].attrs['sample_rate'] = raw_cont.sampling_rate
-            neural_group["RawContinuous"].attrs["start_time"] = raw_cont.t_start
-            neural_group["RawContinuous"].attrs["duration"] = f"{float(raw_cont.duration.magnitude)} s"
+    # Store each channel into the RawContinuous dataset as a tuple consisting
+    # of the channel name and the channel EEG data
+    ch_index = 0
+    for ch in raw_cont_np:
+        ch_number = ch_index + 1
+        ch_name = f"Channel {ch_number}"
+        ch_data = ch
 
-            segment_idx += 1
-        block_idx += 1    
+        print(f"Storing {ch_name}...")
+
+        raw_cont_ds[ch_index] = (ch_name, ch_data)
+        ch_index += 1
+        if (ch_index == num_chs):
+            break
+
+    # Extract metadata
+    raw_cont_ds.attrs["name"] = str(raw_cont.name)
+    raw_cont_ds.attrs["sample_rate"] = raw_cont.sampling_rate
+    raw_cont_ds.attrs["start_time"] = raw_cont.t_start
+    raw_cont_ds.attrs["duration"] = f"{float(raw_cont.duration.magnitude)} s"    
 
 
 # Stores episodic data within the raw EEG data file's NEO object form into
@@ -171,24 +217,41 @@ def store_behavioral_data(raw_data, hdf5_obj):
         block_idx += 1
         
 
-def store_spikes(raw_data, hdf5_obj):
-    print("== STORING SPIKES ==")
-    block_idx = 0
-    segment_idx = 0
-
+def store_spike_times(raw_data, hdf5_obj):
+    print("== STORING SPIKE TIME ARRAYS ==")
     neural_group = get_subgroup(hdf5_obj, "Neural")
 
-    for block in raw_data:
-        segment_idx = 0
-        print(f"num of segments in block {block_idx}: {len(block.segments)}")
-        for segment in block.segments:
-            print(f"num of SpikeTrains in block {block_idx}, segment {segment_idx}: {len(segment.spiketrains)}")
-            for spiketrain in segment.spiketrains:
-                # print(f"shape of SpikeTrains {spiketrain_idx} in block {block_idx}, segment {segment_idx}: {signal.shape}")
-                signal_np_arr = spiketrain.magnitude
-                neural_group[f"{format_spike_name(spiketrain.name)}"] = signal_np_arr
-            segment_idx += 1
-        block_idx += 1
+    spiketrains = raw_data[0].segments[0].spiketrains
+    num_single_units = len(spiketrains)
+
+    spiketimes_dataset = neural_group.create_dataset("SpikeTimes", num_single_units, dtype=datatype_creator.spks_dt())
+
+    single_unit_index = 0
+    for spiketrain in spiketrains:
+        single_unit_name = format_spike_name(spiketrain.name)
+        spike_times = spiketrain.magnitude
+        spiketimes_dataset[single_unit_index] = (single_unit_name, spike_times)
+        single_unit_index += 1
+
+
+def store_spike_waveforms(raw_data, hdf5_obj):
+    print("== STORING SPIKE WAVEFORMS ==")
+    neural_group = get_subgroup(hdf5_obj, "Neural")
+    waveforms_group = neural_group.create_group("SpikeWaveforms")
+
+    spiketrains = raw_data[0].segments[0].spiketrains
+
+    for spiketrain in spiketrains:
+        single_unit_name = format_spike_name(spiketrain.name)
+        spike_waveforms_dataset = waveforms_group.create_dataset(single_unit_name, \
+                                                                spiketrain.waveforms.shape[0], \
+                                                                dtype=h5py.vlen_dtype('float32'))
+        
+        print(f"Storing {single_unit_name}...")
+        waveform_idx = 0
+        for waveform in spiketrain.waveforms:
+            spike_waveforms_dataset[waveform_idx] = waveform[0]
+            waveform_idx += 1
 
 
 # TODO: implement storing events
@@ -215,7 +278,7 @@ def store_events_classes(raw_data, hdf5_obj):
 def store_data(data_fp, hdf5_fp):
     # read in raw EEG file as a NEO object
     reader = neo.io.get_io(data_fp)
-    raw_data = reader.read(lazy=False)
+    raw_data = reader.read(lazy=False, load_waveforms=True)
 
     # FOR DEBUGGING PURPOSES
     print(f"num of blocks in raw data: {len(raw_data)}")
@@ -224,7 +287,8 @@ def store_data(data_fp, hdf5_fp):
     hdf5_obj = h5py.File(hdf5_fp, "a")
 
     store_raw_cont(raw_data, hdf5_obj)
-    store_spikes(raw_data, hdf5_obj)
+    store_spike_times(raw_data, hdf5_obj)
+    store_spike_waveforms(raw_data, hdf5_obj)
     store_behavioral_data(raw_data, hdf5_obj)
     store_events_classes(raw_data, hdf5_obj)
 
